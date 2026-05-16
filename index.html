@@ -404,6 +404,72 @@
   .task-prio-flag.p2 { background: var(--p2); }
   .task-prio-flag.p3 { background: var(--p3); }
 
+  /* ── TAGS ── */
+  .task-tag {
+    font-size: 0.65rem;
+    padding: 1px 7px;
+    border-radius: 20px;
+    font-weight: 500;
+    background: rgba(124,58,237,.12);
+    color: #7c3aed;
+    cursor: pointer;
+    transition: var(--trans);
+    border: 1px solid rgba(124,58,237,.2);
+  }
+  .task-tag:hover { background: rgba(124,58,237,.22); }
+
+  .tag-input-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.4rem 0.6rem;
+    background: var(--bg);
+    min-height: 38px;
+    cursor: text;
+    transition: var(--trans);
+  }
+  .tag-input-wrap:focus-within { border-color: var(--accent); background: var(--surface); }
+
+  .tag-pill-input {
+    font-size: 0.65rem;
+    padding: 1px 7px;
+    border-radius: 20px;
+    font-weight: 500;
+    background: rgba(124,58,237,.12);
+    color: #7c3aed;
+    border: 1px solid rgba(124,58,237,.2);
+    display: flex; align-items: center; gap: 4px;
+  }
+  .tag-pill-input button {
+    background: none; border: none; cursor: pointer;
+    color: #7c3aed; font-size: 0.7rem; padding: 0; line-height: 1;
+  }
+
+  .tag-text-input {
+    border: none; outline: none;
+    font-size: 0.8rem; font-family: inherit;
+    color: var(--ink); background: transparent;
+    min-width: 80px; flex: 1;
+  }
+
+  .nav-tag-item {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.45rem 1.25rem;
+    font-size: 0.8rem;
+    color: #d6d3d1;
+    cursor: pointer;
+    transition: var(--trans);
+    border-left: 3px solid transparent;
+  }
+  .nav-tag-item:hover { background: rgba(255,255,255,.06); color: #fff; }
+  .nav-tag-item.active { background: rgba(255,255,255,.1); color: #fff; border-left-color: #a78bfa; font-weight: 500; }
+  .nav-tag-item .tag-hash { color: #a78bfa; font-weight: 700; }
+
   .task-actions {
     display: none;
     gap: 0.25rem;
@@ -597,6 +663,11 @@
         <span>＋</span> Add List
       </div>
     </div>
+
+    <div class="sidebar-section" style="margin-top:.5rem; border-top:1px solid rgba(255,255,255,.06); padding-top:.5rem;">
+      <div class="sidebar-label">Tags</div>
+      <div id="tagNav"></div>
+    </div>
   </aside>
 
   <!-- ── MAIN ── -->
@@ -637,6 +708,9 @@
           <div class="prio-btn p2" data-p="2" onclick="selectPrio(this)" title="P2 – High">2</div>
           <div class="prio-btn p3" data-p="3" onclick="selectPrio(this)" title="P3 – Medium">3</div>
           <div class="prio-btn p4 selected" data-p="4" onclick="selectPrio(this)" title="No priority">–</div>
+        </div>
+        <div class="tag-input-wrap" id="newTagWrap" onclick="document.getElementById('newTagInput').focus()" style="flex:1;min-width:120px;">
+          <input class="tag-text-input" id="newTagInput" placeholder="Add tags…" onkeydown="newTagKeydown(event)" />
         </div>
         <button class="btn-cancel-task" onclick="closeAddRow()">Cancel</button>
         <button class="btn-add-task" onclick="addTask()">Add</button>
@@ -708,6 +782,12 @@
         <div class="prio-btn p4 selected" data-p="4" onclick="selectEditPrio(this)">–</div>
       </div>
     </div>
+    <div class="modal-field">
+      <label>Tags</label>
+      <div class="tag-input-wrap" id="editTagWrap" onclick="document.getElementById('editTagInput').focus()">
+        <input class="tag-text-input" id="editTagInput" placeholder="Type a tag and press Enter…" onkeydown="editTagKeydown(event)" />
+      </div>
+    </div>
     <div class="modal-actions">
       <button class="btn-ghost" onclick="closeModal('editModal')">Cancel</button>
       <button class="btn-primary" onclick="saveEdit()">Save</button>
@@ -735,10 +815,13 @@ let tasks  = [];
 let lists  = [];
 let currentView   = 'today';
 let currentFilter = 'open';
+let currentTag    = null;   // active tag filter from sidebar
 let selectedPrio  = '4';
 let selectedEditPrio = '4';
 let selectedListColor = '#d97706';
 let openDetailId  = null;
+let newTags  = [];   // tags being built in add-task row
+let editTags = [];   // tags being built in edit modal
 
 // ─── Sync UI ─────────────────────────────────────────────────────────────────
 function setSyncStatus(s) {
@@ -808,6 +891,7 @@ async function loadAll() {
       tasks = snap.docs.map(d => ({id:d.id,...d.data()}));
       updateCounts();
       renderTasks();
+      renderTagNav();
       setSyncStatus('');
     });
   } catch(e) {
@@ -826,11 +910,26 @@ function updateCounts() {
 }
 
 // ─── Views ───────────────────────────────────────────────────────────────────
+function setTagView(tag) {
+  currentTag = tag;
+  currentView = 'tag';
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.nav-tag-item').forEach(el => {
+    el.classList.toggle('active', el.textContent.trim().startsWith('#'+tag));
+  });
+  document.getElementById('viewTitle').textContent = '#' + tag;
+  document.getElementById('viewSubtitle').textContent = 'Tasks tagged with #' + tag;
+  renderTasks();
+  closeSidebar();
+}
+
 function setView(v) {
   currentView = v;
+  currentTag = null;
   document.querySelectorAll('.nav-item').forEach(el => {
     el.classList.toggle('active', el.dataset.view === v || el.dataset.list === v);
   });
+  document.querySelectorAll('.nav-tag-item').forEach(el => el.classList.remove('active'));
 
   const titles = {today:'Today', upcoming:'Upcoming', all:'All Tasks', done:'Completed'};
   document.getElementById('viewTitle').textContent = titles[v] || (listFor(v)?.name || v);
@@ -869,6 +968,8 @@ function renderTasks() {
     filtered = filtered.filter(tk => !tk.done);
   } else if (currentView === 'done') {
     filtered = filtered.filter(tk => tk.done);
+  } else if (currentView === 'tag') {
+    filtered = filtered.filter(tk => !tk.done && (tk.tags||[]).includes(currentTag));
   } else {
     // list view
     filtered = filtered.filter(tk => tk.listId === currentView && !tk.done);
@@ -938,6 +1039,7 @@ function taskHTML(tk) {
         ${dueInfo ? `<span class="task-due ${dueInfo.cls}">📅 ${dueInfo.label}</span>` : ''}
         ${lst ? `<span class="task-list-tag" style="background:${lst.color||'#888'}">${escHtml(lst.name)}</span>` : ''}
         ${p < 4 ? `<span class="task-prio-flag p${p}">P${p}</span>` : ''}
+        ${(tk.tags||[]).map(tag => `<span class="task-tag" onclick="event.stopPropagation();setTagView('${escHtml(tag)}')">#${escHtml(tag)}</span>`).join('')}
         ${tk.notes ? `<span style="font-size:.7rem;color:var(--ink-3)">📝</span>` : ''}
       </div>
     </div>
@@ -969,6 +1071,28 @@ function renderListNav() {
   `).join('');
 }
 
+function renderTagNav() {
+  const el = document.getElementById('tagNav');
+  // collect all unique tags across all tasks
+  const tagCounts = {};
+  tasks.filter(t => !t.done).forEach(t => {
+    (t.tags||[]).forEach(tag => {
+      tagCounts[tag] = (tagCounts[tag]||0) + 1;
+    });
+  });
+  const allTags = Object.keys(tagCounts).sort();
+  if (allTags.length === 0) {
+    el.innerHTML = '<div style="padding:.3rem 1.25rem;font-size:.75rem;color:#57534e;">No tags yet</div>';
+    return;
+  }
+  el.innerHTML = allTags.map(tag => `
+    <div class="nav-tag-item ${currentTag===tag?'active':''}" onclick="setTagView('${escHtml(tag)}')">
+      <span class="tag-hash">#</span>${escHtml(tag)}
+      <span class="nav-count" style="background:rgba(167,139,250,.2);color:#a78bfa;">${tagCounts[tag]}</span>
+    </div>
+  `).join('');
+}
+
 function populateListSelects() {
   const opts = `<option value="">No list</option>` + lists.map(l =>
     `<option value="${l.id}">${escHtml(l.name)}</option>`
@@ -976,6 +1100,52 @@ function populateListSelects() {
   document.getElementById('newList').innerHTML = opts;
   document.getElementById('editList').innerHTML = opts;
 }
+
+// ─── Tag input helpers ────────────────────────────────────────────────────────
+function renderTagPills(wrapId, tagsArr, removeCallback) {
+  const wrap = document.getElementById(wrapId);
+  const input = wrap.querySelector('.tag-text-input');
+  // remove existing pills
+  wrap.querySelectorAll('.tag-pill-input').forEach(p => p.remove());
+  tagsArr.forEach((tag, i) => {
+    const pill = document.createElement('div');
+    pill.className = 'tag-pill-input';
+    pill.innerHTML = `#${escHtml(tag)}<button onclick="${removeCallback}(${i})" type="button">✕</button>`;
+    wrap.insertBefore(pill, input);
+  });
+}
+
+function newTagKeydown(e) {
+  if (e.key === 'Enter' || e.key === ',' || e.key === ' ') {
+    e.preventDefault();
+    const val = e.target.value.trim().replace(/^#/,'').replace(/[^a-zA-Z0-9_-]/g,'');
+    if (val && !newTags.includes(val)) { newTags.push(val); }
+    e.target.value = '';
+    renderTagPills('newTagWrap', newTags, 'removeNewTag');
+  }
+  if (e.key === 'Backspace' && e.target.value === '' && newTags.length) {
+    newTags.pop();
+    renderTagPills('newTagWrap', newTags, 'removeNewTag');
+  }
+}
+
+function removeNewTag(i) { newTags.splice(i,1); renderTagPills('newTagWrap', newTags, 'removeNewTag'); }
+
+function editTagKeydown(e) {
+  if (e.key === 'Enter' || e.key === ',' || e.key === ' ') {
+    e.preventDefault();
+    const val = e.target.value.trim().replace(/^#/,'').replace(/[^a-zA-Z0-9_-]/g,'');
+    if (val && !editTags.includes(val)) { editTags.push(val); }
+    e.target.value = '';
+    renderTagPills('editTagWrap', editTags, 'removeEditTag');
+  }
+  if (e.key === 'Backspace' && e.target.value === '' && editTags.length) {
+    editTags.pop();
+    renderTagPills('editTagWrap', editTags, 'removeEditTag');
+  }
+}
+
+function removeEditTag(i) { editTags.splice(i,1); renderTagPills('editTagWrap', editTags, 'removeEditTag'); }
 
 // ─── Add task ─────────────────────────────────────────────────────────────────
 function openAddRow() {
@@ -986,6 +1156,9 @@ function closeAddRow() {
   document.getElementById('addTaskRow').classList.remove('open');
   document.getElementById('addTaskInput').value = '';
   document.getElementById('newDue').value = '';
+  document.getElementById('newTagInput').value = '';
+  newTags = [];
+  renderTagPills('newTagWrap', newTags, 'removeNewTag');
   selectedPrio = '4';
   document.querySelectorAll('#newPrioPicker .prio-btn').forEach(b => {
     b.classList.toggle('selected', b.dataset.p === '4');
@@ -1007,12 +1180,17 @@ async function addTask() {
   const title = document.getElementById('addTaskInput').value.trim();
   if (!title) return;
 
+  // flush any partially typed tag
+  const partialTag = document.getElementById('newTagInput').value.trim().replace(/^#/,'').replace(/[^a-zA-Z0-9_-]/g,'');
+  if (partialTag && !newTags.includes(partialTag)) newTags.push(partialTag);
+
   const entry = {
     title,
     done: false,
     priority: parseInt(selectedPrio) || 4,
     due: document.getElementById('newDue').value || null,
     listId: document.getElementById('newList').value || null,
+    tags: [...newTags],
     notes: '',
     createdAt: firebase.firestore.FieldValue.serverTimestamp()
   };
@@ -1055,6 +1233,10 @@ function openEdit(id) {
   document.getElementById('editDue').value    = tk.due||'';
   document.getElementById('editList').value   = tk.listId||'';
 
+  editTags = [...(tk.tags||[])];
+  document.getElementById('editTagInput').value = '';
+  renderTagPills('editTagWrap', editTags, 'removeEditTag');
+
   selectedEditPrio = String(tk.priority||4);
   document.querySelectorAll('#editPrioPicker .prio-btn').forEach(b => {
     b.classList.toggle('selected', b.dataset.p === selectedEditPrio);
@@ -1071,12 +1253,17 @@ function selectEditPrio(el) {
 
 async function saveEdit() {
   const id = document.getElementById('editTaskId').value;
+  // flush any partially typed tag
+  const partialTag = document.getElementById('editTagInput').value.trim().replace(/^#/,'').replace(/[^a-zA-Z0-9_-]/g,'');
+  if (partialTag && !editTags.includes(partialTag)) editTags.push(partialTag);
+
   const data = {
     title:    document.getElementById('editTitle').value.trim(),
     notes:    document.getElementById('editNotes').value.trim(),
     due:      document.getElementById('editDue').value || null,
     listId:   document.getElementById('editList').value || null,
     priority: parseInt(selectedEditPrio) || 4,
+    tags:     [...editTags],
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
   };
   if (!data.title) return;
@@ -1115,6 +1302,10 @@ function openDetail(id) {
       ${lst ? `<div>
         <div style="font-size:.7rem;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3rem;">List</div>
         <span class="task-list-tag" style="background:${lst.color}">${escHtml(lst.name)}</span>
+      </div>` : ''}
+      ${(tk.tags||[]).length ? `<div>
+        <div style="font-size:.7rem;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3rem;">Tags</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;">${(tk.tags||[]).map(tag=>`<span class="task-tag" onclick="setTagView('${escHtml(tag)}');closeDetail()">#${escHtml(tag)}</span>`).join('')}</div>
       </div>` : ''}
       <div>
         <div style="font-size:.7rem;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3rem;">Status</div>

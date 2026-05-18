@@ -492,6 +492,113 @@
   .icon-btn:hover { background: var(--bg); color: var(--ink); }
   .icon-btn.del:hover { background: #fee2e2; color: var(--p1); }
 
+  /* ── SUBTASKS ── */
+  .subtask-progress {
+    font-size: 0.65rem;
+    color: var(--ink-3);
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  .subtask-progress-bar {
+    width: 36px; height: 3px;
+    background: var(--border);
+    border-radius: 99px;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .subtask-progress-fill {
+    height: 100%;
+    background: var(--done);
+    border-radius: 99px;
+    transition: width .3s ease;
+  }
+
+  .subtask-list {
+    margin-top: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-left: 1.6rem;
+  }
+  .subtask-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--ink-2);
+    padding: 0.2rem 0;
+  }
+  .subtask-item.done span { text-decoration: line-through; color: var(--ink-3); }
+  .subtask-check {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    border: 1.5px solid var(--border);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    transition: var(--trans);
+  }
+  .subtask-check:hover { border-color: var(--done); }
+  .subtask-check.done { background: var(--done); border-color: var(--done); }
+  .subtask-check.done::after { content: '✓'; color: #fff; font-size: 0.55rem; font-weight: 700; }
+
+  /* detail panel subtask section */
+  .subtask-add-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+  .subtask-add-input {
+    flex: 1;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.8rem;
+    font-family: inherit;
+    color: var(--ink);
+    background: var(--bg);
+    transition: var(--trans);
+  }
+  .subtask-add-input:focus { outline: none; border-color: var(--accent); background: var(--surface); }
+  .subtask-add-btn {
+    padding: 0.4rem 0.75rem;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    white-space: nowrap;
+    transition: var(--trans);
+  }
+  .subtask-add-btn:hover { background: #b45309; }
+
+  .detail-subtask-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .detail-subtask-item:last-child { border-bottom: none; }
+  .detail-subtask-item.done > span { text-decoration: line-through; color: var(--ink-3); }
+  .detail-subtask-item .subtask-del {
+    margin-left: auto;
+    background: none; border: none;
+    color: var(--ink-3); cursor: pointer;
+    font-size: 0.8rem; padding: 0 4px;
+    opacity: 0; transition: var(--trans);
+  }
+  .detail-subtask-item:hover .subtask-del { opacity: 1; }
+  .detail-subtask-item .subtask-del:hover { color: var(--p1); }
+
   /* ── EMPTY STATE ── */
   .empty-state {
     text-align: center;
@@ -1025,6 +1132,20 @@ function taskHTML(tk) {
   const dueInfo = tk.due ? formatDue(tk.due) : null;
   const p = tk.priority || 4;
   const pClass = p < 4 ? `p${p}` : '';
+  const subtasks = tk.subtasks || [];
+  const stTotal = subtasks.length;
+  const stDone  = subtasks.filter(s => s.done).length;
+  const stPct   = stTotal ? Math.round((stDone/stTotal)*100) : 0;
+
+  const subtaskListHTML = stTotal ? `
+    <div class="subtask-list">
+      ${subtasks.map((s,i) => `
+        <div class="subtask-item ${s.done?'done':''}">
+          <div class="subtask-check ${s.done?'done':''}"
+            onclick="event.stopPropagation();toggleSubtask('${tk.id}',${i})"></div>
+          <span>${escHtml(s.title)}</span>
+        </div>`).join('')}
+    </div>` : '';
 
   return `
   <div class="task-item ${tk.done?'done':''}" data-id="${tk.id}" onclick="handleTaskClick(event,'${tk.id}')">
@@ -1041,7 +1162,12 @@ function taskHTML(tk) {
         ${p < 4 ? `<span class="task-prio-flag p${p}">P${p}</span>` : ''}
         ${(tk.tags||[]).map(tag => `<span class="task-tag" onclick="event.stopPropagation();setTagView('${escHtml(tag)}')">#${escHtml(tag)}</span>`).join('')}
         ${tk.notes ? `<span style="font-size:.7rem;color:var(--ink-3)">📝</span>` : ''}
+        ${stTotal ? `<span class="subtask-progress">
+          <div class="subtask-progress-bar"><div class="subtask-progress-fill" style="width:${stPct}%"></div></div>
+          ${stDone}/${stTotal}
+        </span>` : ''}
       </div>
+      ${subtaskListHTML}
     </div>
     <div class="task-actions" onclick="event.stopPropagation()">
       <button class="icon-btn" onclick="openEdit('${tk.id}')" title="Edit">✏️</button>
@@ -1283,6 +1409,9 @@ function openDetail(id) {
   const lst = listFor(tk.listId);
   const dueInfo = tk.due ? formatDue(tk.due) : null;
   const p = tk.priority || 4;
+  const subtasks = tk.subtasks || [];
+  const stTotal = subtasks.length;
+  const stDone  = subtasks.filter(s => s.done).length;
 
   document.getElementById('detailTitle').textContent = tk.title;
   document.getElementById('detailBody').innerHTML = `
@@ -1291,6 +1420,26 @@ function openDetail(id) {
         <div style="font-size:.7rem;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3rem;">Notes</div>
         <div style="font-size:.875rem;color:var(--ink-2);line-height:1.6">${escHtml(tk.notes)}</div>
       </div>` : ''}
+
+      <div>
+        <div style="font-size:.7rem;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.5rem;">
+          Subtasks ${stTotal ? `<span style="font-weight:400;color:var(--ink-3)">(${stDone}/${stTotal})</span>` : ''}
+        </div>
+        <div id="detailSubtaskList">
+          ${subtasks.length ? subtasks.map((s,i) => `
+            <div class="detail-subtask-item ${s.done?'done':''}">
+              <div class="subtask-check ${s.done?'done':''}" onclick="toggleSubtask('${tk.id}',${i})"></div>
+              <span>${escHtml(s.title)}</span>
+              <button class="subtask-del" onclick="deleteSubtask('${tk.id}',${i})" title="Delete">✕</button>
+            </div>`).join('') : '<div style="font-size:.8rem;color:var(--ink-3);padding:.25rem 0;">No subtasks yet</div>'}
+        </div>
+        <div class="subtask-add-row">
+          <input class="subtask-add-input" id="subtaskInput" placeholder="Add a subtask…"
+            onkeydown="if(event.key==='Enter')addSubtask('${tk.id}')" />
+          <button class="subtask-add-btn" onclick="addSubtask('${tk.id}')">Add</button>
+        </div>
+      </div>
+
       <div>
         <div style="font-size:.7rem;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3rem;">Due date</div>
         <div style="font-size:.875rem;${dueInfo?.cls==='overdue'?'color:var(--p1);font-weight:600':''}">${dueInfo ? dueInfo.label : '—'}</div>
@@ -1319,6 +1468,48 @@ function openDetail(id) {
   `;
 
   document.getElementById('detailPanel').classList.add('open');
+  setTimeout(() => document.getElementById('subtaskInput')?.focus(), 50);
+}
+
+// ─── Subtask functions ────────────────────────────────────────────────────────
+async function addSubtask(taskId) {
+  const input = document.getElementById('subtaskInput');
+  const title = input?.value.trim();
+  if (!title) return;
+
+  const tk = tasks.find(t => t.id === taskId);
+  if (!tk) return;
+
+  const subtasks = [...(tk.subtasks||[]), { title, done: false, id: Date.now().toString() }];
+  try {
+    setSyncStatus('syncing');
+    await tasksCol.doc(taskId).update({ subtasks });
+    setSyncStatus('');
+    if (input) input.value = '';
+    openDetail(taskId); // re-render panel
+  } catch(e) { console.error(e); setSyncStatus('offline'); }
+}
+
+async function toggleSubtask(taskId, index) {
+  const tk = tasks.find(t => t.id === taskId);
+  if (!tk) return;
+  const subtasks = (tk.subtasks||[]).map((s,i) => i === index ? {...s, done: !s.done} : s);
+  try {
+    setSyncStatus('syncing');
+    await tasksCol.doc(taskId).update({ subtasks });
+    setSyncStatus('');
+    openDetail(taskId);
+  } catch(e) { console.error(e); setSyncStatus('offline'); }
+}
+
+async function deleteSubtask(taskId, index) {
+  const tk = tasks.find(t => t.id === taskId);
+  if (!tk) return;
+  const subtasks = (tk.subtasks||[]).filter((_,i) => i !== index);
+  try {
+    await tasksCol.doc(taskId).update({ subtasks });
+    openDetail(taskId);
+  } catch(e) { console.error(e); }
 }
 
 function closeDetail() {

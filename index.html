@@ -479,20 +479,21 @@
   .task-item:hover .task-actions { display: flex; }
 
   .drag-handle {
-    display: none;
+    display: flex;
     align-items: center;
     justify-content: center;
     width: 16px;
     flex-shrink: 0;
-    color: var(--ink-3);
+    color: var(--border);
     cursor: grab;
     font-size: 1rem;
     line-height: 1;
     user-select: none;
     padding: 0 2px;
+    transition: color .15s;
   }
   .drag-handle:active { cursor: grabbing; }
-  .task-item:hover .drag-handle { display: flex; }
+  .task-item:hover .drag-handle { color: var(--ink-3); }
   .task-item.drag-over-top    { border-top: 2px solid var(--accent) !important; }
   .task-item.drag-over-bottom { border-bottom: 2px solid var(--accent) !important; }
   .task-item.dragging { opacity: .4; }
@@ -736,6 +737,16 @@
   }
   .color-swatch.selected, .color-swatch:hover { border-color: var(--ink); transform: scale(1.15); }
 
+  /* ── REPEAT ── */
+  .repeat-badge {
+    font-size: 0.65rem;
+    color: var(--ink-3);
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .repeat-badge.active { color: #0891b2; }
+
   /* ── SCROLLBAR ── */
   ::-webkit-scrollbar { width: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -829,6 +840,13 @@
       <div class="add-task-actions" id="addTaskActions">
         <input type="date" class="task-meta-input" id="newDue" />
         <select class="task-meta-input" id="newList" style="max-width:140px;"></select>
+        <select class="task-meta-input" id="newRepeat" style="max-width:110px;">
+          <option value="none">No repeat</option>
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+          <option value="monthly">Monthly</option>
+          <option value="yearly">Yearly</option>
+        </select>
         <div class="priority-picker" id="newPrioPicker">
           <div class="prio-btn p1" data-p="1" onclick="selectPrio(this)" title="P1 – Urgent">1</div>
           <div class="prio-btn p2" data-p="2" onclick="selectPrio(this)" title="P2 – High">2</div>
@@ -914,6 +932,16 @@
         <input class="tag-text-input" id="editTagInput" placeholder="Type a tag and press Enter…" onkeydown="editTagKeydown(event)" />
       </div>
     </div>
+    <div class="modal-field">
+      <label>Repeat</label>
+      <select id="editRepeat">
+        <option value="none">No repeat</option>
+        <option value="daily">Daily</option>
+        <option value="weekly">Weekly</option>
+        <option value="monthly">Monthly</option>
+        <option value="yearly">Yearly</option>
+      </select>
+    </div>
     <div class="modal-actions">
       <button class="btn-ghost" onclick="closeModal('editModal')">Cancel</button>
       <button class="btn-primary" onclick="saveEdit()">Save</button>
@@ -974,6 +1002,18 @@ function formatDue(str) {
   if (diff === 0) return { label: 'Today', cls: 'today' };
   if (diff === 1) return { label: 'Tomorrow', cls: '' };
   return { label: d.toLocaleDateString('en-US',{month:'short',day:'numeric'}), cls: '' };
+}
+
+const REPEAT_LABELS = { daily:'Daily', weekly:'Weekly', monthly:'Monthly', yearly:'Yearly' };
+
+function nextDueDate(due, repeat) {
+  if (!due || !repeat || repeat === 'none') return null;
+  const d = parseDue(due);
+  if (repeat === 'daily')   d.setDate(d.getDate() + 1);
+  if (repeat === 'weekly')  d.setDate(d.getDate() + 7);
+  if (repeat === 'monthly') d.setMonth(d.getMonth() + 1);
+  if (repeat === 'yearly')  d.setFullYear(d.getFullYear() + 1);
+  return d.toISOString().split('T')[0];
 }
 
 function listFor(id) { return lists.find(l => l.id === id); }
@@ -1194,6 +1234,7 @@ function taskHTML(tk) {
           <div class="subtask-progress-bar"><div class="subtask-progress-fill" style="width:${stPct}%"></div></div>
           ${stDone}/${stTotal}
         </span>` : ''}
+        ${tk.repeat && tk.repeat !== 'none' ? `<span class="repeat-badge active">🔁 ${REPEAT_LABELS[tk.repeat]}</span>` : ''}
       </div>
       ${subtaskListHTML}
     </div>
@@ -1310,6 +1351,7 @@ function closeAddRow() {
   document.getElementById('addTaskRow').classList.remove('open');
   document.getElementById('addTaskInput').value = '';
   document.getElementById('newDue').value = '';
+  document.getElementById('newRepeat').value = 'none';
   document.getElementById('newTagInput').value = '';
   newTags = [];
   renderTagPills('newTagWrap', newTags, 'removeNewTag');
@@ -1344,6 +1386,7 @@ async function addTask() {
     priority: parseInt(selectedPrio) || 4,
     due: document.getElementById('newDue').value || null,
     listId: document.getElementById('newList').value || null,
+    repeat: document.getElementById('newRepeat').value || 'none',
     tags: [...newTags],
     notes: '',
     createdAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -1363,7 +1406,27 @@ async function addTask() {
 async function toggleDone(id, done) {
   try {
     setSyncStatus('syncing');
+    const tk = tasks.find(t => t.id === id);
     await tasksCol.doc(id).update({ done, doneAt: done ? new Date().toISOString() : null });
+
+    // If completing a repeating task, spawn next occurrence
+    if (done && tk && tk.repeat && tk.repeat !== 'none') {
+      const next = nextDueDate(tk.due, tk.repeat);
+      if (next) {
+        await tasksCol.add({
+          title:    tk.title,
+          done:     false,
+          priority: tk.priority || 4,
+          due:      next,
+          listId:   tk.listId || null,
+          repeat:   tk.repeat,
+          tags:     tk.tags || [],
+          notes:    tk.notes || '',
+          subtasks: (tk.subtasks||[]).map(s => ({...s, done: false})), // reset subtasks
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      }
+    }
     setSyncStatus('');
   } catch(e) { console.error(e); setSyncStatus('offline'); }
 }
@@ -1390,6 +1453,7 @@ function openEdit(id) {
   editTags = [...(tk.tags||[])];
   document.getElementById('editTagInput').value = '';
   renderTagPills('editTagWrap', editTags, 'removeEditTag');
+  document.getElementById('editRepeat').value = tk.repeat || 'none';
 
   selectedEditPrio = String(tk.priority||4);
   document.querySelectorAll('#editPrioPicker .prio-btn').forEach(b => {
@@ -1417,6 +1481,7 @@ async function saveEdit() {
     due:      document.getElementById('editDue').value || null,
     listId:   document.getElementById('editList').value || null,
     priority: parseInt(selectedEditPrio) || 4,
+    repeat:   document.getElementById('editRepeat').value || 'none',
     tags:     [...editTags],
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
   };
@@ -1471,6 +1536,10 @@ function openDetail(id) {
       <div>
         <div style="font-size:.7rem;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3rem;">Due date</div>
         <div style="font-size:.875rem;${dueInfo?.cls==='overdue'?'color:var(--p1);font-weight:600':''}">${dueInfo ? dueInfo.label : '—'}</div>
+      </div>
+      <div>
+        <div style="font-size:.7rem;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3rem;">Repeat</div>
+        <div style="font-size:.875rem;">${tk.repeat && tk.repeat !== 'none' ? `<span class="repeat-badge active">🔁 ${REPEAT_LABELS[tk.repeat]}</span>` : '—'}</div>
       </div>
       <div>
         <div style="font-size:.7rem;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3rem;">Priority</div>

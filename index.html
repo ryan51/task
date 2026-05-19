@@ -478,6 +478,25 @@
   }
   .task-item:hover .task-actions { display: flex; }
 
+  .drag-handle {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    flex-shrink: 0;
+    color: var(--ink-3);
+    cursor: grab;
+    font-size: 1rem;
+    line-height: 1;
+    user-select: none;
+    padding: 0 2px;
+  }
+  .drag-handle:active { cursor: grabbing; }
+  .task-item:hover .drag-handle { display: flex; }
+  .task-item.drag-over-top    { border-top: 2px solid var(--accent) !important; }
+  .task-item.drag-over-bottom { border-bottom: 2px solid var(--accent) !important; }
+  .task-item.dragging { opacity: .4; }
+
   .icon-btn {
     width: 28px; height: 28px;
     border-radius: 6px;
@@ -1104,7 +1123,12 @@ function renderTasks() {
   } else if (sort === 'alpha') {
     filtered.sort((a,b) => a.title.localeCompare(b.title));
   } else {
-    filtered.sort((a,b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
+    // manual order field first, fall back to createdAt
+    filtered.sort((a,b) => {
+      const ao = a.order ?? a.createdAt?.seconds ?? 0;
+      const bo = b.order ?? b.createdAt?.seconds ?? 0;
+      return ao - bo;
+    });
   }
 
   const container = document.getElementById('taskList');
@@ -1125,6 +1149,9 @@ function renderTasks() {
   }
 
   container.innerHTML = filtered.map(tk => taskHTML(tk)).join('');
+
+  // Attach drag-and-drop if sorted by manual order
+  if (sort === 'created') attachDragHandlers(filtered);
 }
 
 function taskHTML(tk) {
@@ -1149,6 +1176,7 @@ function taskHTML(tk) {
 
   return `
   <div class="task-item ${tk.done?'done':''}" data-id="${tk.id}" onclick="handleTaskClick(event,'${tk.id}')">
+    <div class="drag-handle" title="Drag to reorder">⠿</div>
     <div class="task-check-wrap">
       <div class="task-check ${tk.done?'done':''} ${!tk.done&&pClass?pClass:''}"
         onclick="event.stopPropagation();toggleDone('${tk.id}',${!tk.done})">
@@ -1469,6 +1497,84 @@ function openDetail(id) {
 
   document.getElementById('detailPanel').classList.add('open');
   setTimeout(() => document.getElementById('subtaskInput')?.focus(), 50);
+}
+
+// ─── Drag to reorder ──────────────────────────────────────────────────────────
+let dragSrcId = null;
+
+function attachDragHandlers(orderedTasks) {
+  const container = document.getElementById('taskList');
+  const items = container.querySelectorAll('.task-item');
+
+  items.forEach(item => {
+    const handle = item.querySelector('.drag-handle');
+    if (!handle) return;
+
+    // Only the handle initiates drag
+    handle.addEventListener('mousedown', () => { item.draggable = true; });
+    handle.addEventListener('mouseup',   () => { item.draggable = false; });
+
+    item.addEventListener('dragstart', e => {
+      dragSrcId = item.dataset.id;
+      item.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+
+    item.addEventListener('dragend', () => {
+      item.draggable = false;
+      item.classList.remove('dragging');
+      container.querySelectorAll('.task-item').forEach(el => {
+        el.classList.remove('drag-over-top','drag-over-bottom');
+      });
+    });
+
+    item.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (item.dataset.id === dragSrcId) return;
+      const rect = item.getBoundingClientRect();
+      const mid  = rect.top + rect.height / 2;
+      container.querySelectorAll('.task-item').forEach(el => {
+        el.classList.remove('drag-over-top','drag-over-bottom');
+      });
+      item.classList.add(e.clientY < mid ? 'drag-over-top' : 'drag-over-bottom');
+    });
+
+    item.addEventListener('dragleave', () => {
+      item.classList.remove('drag-over-top','drag-over-bottom');
+    });
+
+    item.addEventListener('drop', async e => {
+      e.preventDefault();
+      if (item.dataset.id === dragSrcId) return;
+
+      const rect     = item.getBoundingClientRect();
+      const dropBefore = e.clientY < rect.top + rect.height / 2;
+      const ids      = orderedTasks.map(t => t.id);
+      const srcIdx   = ids.indexOf(dragSrcId);
+      let   tgtIdx   = ids.indexOf(item.dataset.id);
+
+      if (srcIdx === -1 || tgtIdx === -1) return;
+
+      // Remove src, insert at target
+      ids.splice(srcIdx, 1);
+      tgtIdx = ids.indexOf(item.dataset.id);
+      ids.splice(dropBefore ? tgtIdx : tgtIdx + 1, 0, dragSrcId);
+
+      // Batch-write new order values
+      try {
+        setSyncStatus('syncing');
+        const batch = db.batch();
+        ids.forEach((id, idx) => {
+          batch.update(tasksCol.doc(id), { order: idx });
+        });
+        await batch.commit();
+        setSyncStatus('');
+      } catch(err) {
+        console.error(err); setSyncStatus('offline');
+      }
+    });
+  });
 }
 
 // ─── Subtask functions ────────────────────────────────────────────────────────

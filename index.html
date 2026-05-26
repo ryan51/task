@@ -1523,9 +1523,9 @@ function openDetail(id) {
         </div>
         <div id="detailSubtaskList">
           ${subtasks.length ? subtasks.map((s,i) => `
-            <div class="detail-subtask-item ${s.done?'done':''}">
+            <div class="detail-subtask-item ${s.done?'done':''}" id="stitem-${i}">
               <div class="subtask-check ${s.done?'done':''}" onclick="toggleSubtask('${tk.id}',${i})"></div>
-              <span>${escHtml(s.title)}</span>
+              <span ondblclick="editSubtaskInline('${tk.id}',${i},this)">${escHtml(s.title)}</span>
               <button class="subtask-del" onclick="deleteSubtask('${tk.id}',${i})" title="Delete">✕</button>
             </div>`).join('') : '<div style="font-size:.8rem;color:var(--ink-3);padding:.25rem 0;">No subtasks yet</div>'}
         </div>
@@ -1650,6 +1650,43 @@ function attachDragHandlers(orderedTasks) {
 }
 
 // ─── Subtask functions ────────────────────────────────────────────────────────
+function editSubtaskInline(taskId, index, spanEl) {
+  const current = spanEl.textContent;
+  const input = document.createElement('input');
+  input.value = current;
+  input.style.cssText = 'flex:1;border:none;border-bottom:2px solid var(--accent);outline:none;font-size:.875rem;font-family:inherit;color:var(--ink);background:transparent;padding:1px 0;';
+  spanEl.replaceWith(input);
+  input.focus();
+  input.select();
+
+  async function save() {
+    const val = input.value.trim();
+    if (!val || val === current) {
+      // restore original
+      const span = document.createElement('span');
+      span.textContent = current;
+      span.ondblclick = () => editSubtaskInline(taskId, index, span);
+      input.replaceWith(span);
+      return;
+    }
+    const tk = tasks.find(t => t.id === taskId);
+    if (!tk) return;
+    const subtasks = (tk.subtasks||[]).map((s,i) => i === index ? {...s, title: val} : s);
+    try {
+      setSyncStatus('syncing');
+      await tasksCol.doc(taskId).update({ subtasks });
+      setSyncStatus('');
+      openDetail(taskId);
+    } catch(e) { console.error(e); setSyncStatus('offline'); }
+  }
+
+  input.addEventListener('blur', save);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter')  { input.blur(); }
+    if (e.key === 'Escape') { input.value = current; input.blur(); }
+  });
+}
+
 async function addSubtask(taskId) {
   const input = document.getElementById('subtaskInput');
   const title = input?.value.trim();

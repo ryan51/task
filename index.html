@@ -622,6 +622,21 @@
   .detail-subtask-item:hover .subtask-del { opacity: 1; }
   .detail-subtask-item .subtask-del:hover { color: var(--p1); }
 
+  .st-drag-handle {
+    color: var(--border);
+    cursor: grab;
+    font-size: 0.9rem;
+    flex-shrink: 0;
+    user-select: none;
+    padding: 0 1px;
+    transition: color .15s;
+  }
+  .st-drag-handle:active { cursor: grabbing; }
+  .detail-subtask-item:hover .st-drag-handle { color: var(--ink-3); }
+  .detail-subtask-item.st-drag-over-top    { border-top: 2px solid var(--accent); }
+  .detail-subtask-item.st-drag-over-bottom { border-bottom: 2px solid var(--accent) !important; }
+  .detail-subtask-item.st-dragging { opacity: .35; }
+
   /* ── EMPTY STATE ── */
   .empty-state {
     text-align: center;
@@ -1523,7 +1538,8 @@ function openDetail(id) {
         </div>
         <div id="detailSubtaskList">
           ${subtasks.length ? subtasks.map((s,i) => `
-            <div class="detail-subtask-item ${s.done?'done':''}" id="stitem-${i}">
+            <div class="detail-subtask-item ${s.done?'done':''}" data-stindex="${i}">
+              <div class="st-drag-handle" title="Drag to reorder">⠿</div>
               <div class="subtask-check ${s.done?'done':''}" onclick="toggleSubtask('${tk.id}',${i})"></div>
               <span ondblclick="editSubtaskInline('${tk.id}',${i},this)">${escHtml(s.title)}</span>
               <button class="subtask-del" onclick="deleteSubtask('${tk.id}',${i})" title="Delete">✕</button>
@@ -1568,7 +1584,10 @@ function openDetail(id) {
   `;
 
   document.getElementById('detailPanel').classList.add('open');
-  setTimeout(() => document.getElementById('subtaskInput')?.focus(), 50);
+  setTimeout(() => {
+    document.getElementById('subtaskInput')?.focus();
+    attachSubtaskDragHandlers(tk.id, tk.subtasks || []);
+  }, 50);
 }
 
 // ─── Drag to reorder ──────────────────────────────────────────────────────────
@@ -1650,6 +1669,72 @@ function attachDragHandlers(orderedTasks) {
 }
 
 // ─── Subtask functions ────────────────────────────────────────────────────────
+// ─── Subtask drag to reorder ──────────────────────────────────────────────────
+let stDragSrcIndex = null;
+
+function attachSubtaskDragHandlers(taskId, subtasks) {
+  const list = document.getElementById('detailSubtaskList');
+  if (!list) return;
+  const items = list.querySelectorAll('.detail-subtask-item');
+
+  items.forEach(item => {
+    const handle = item.querySelector('.st-drag-handle');
+    if (!handle) return;
+
+    handle.addEventListener('mousedown', () => { item.draggable = true; });
+    handle.addEventListener('mouseup',   () => { item.draggable = false; });
+
+    item.addEventListener('dragstart', e => {
+      stDragSrcIndex = parseInt(item.dataset.stindex);
+      item.classList.add('st-dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+
+    item.addEventListener('dragend', () => {
+      item.draggable = false;
+      item.classList.remove('st-dragging');
+      list.querySelectorAll('.detail-subtask-item').forEach(el => {
+        el.classList.remove('st-drag-over-top','st-drag-over-bottom');
+      });
+    });
+
+    item.addEventListener('dragover', e => {
+      e.preventDefault();
+      const idx = parseInt(item.dataset.stindex);
+      if (idx === stDragSrcIndex) return;
+      const rect = item.getBoundingClientRect();
+      list.querySelectorAll('.detail-subtask-item').forEach(el => {
+        el.classList.remove('st-drag-over-top','st-drag-over-bottom');
+      });
+      item.classList.add(e.clientY < rect.top + rect.height / 2 ? 'st-drag-over-top' : 'st-drag-over-bottom');
+    });
+
+    item.addEventListener('dragleave', () => {
+      item.classList.remove('st-drag-over-top','st-drag-over-bottom');
+    });
+
+    item.addEventListener('drop', async e => {
+      e.preventDefault();
+      const tgtIndex = parseInt(item.dataset.stindex);
+      if (tgtIndex === stDragSrcIndex) return;
+
+      const rect      = item.getBoundingClientRect();
+      const dropBefore = e.clientY < rect.top + rect.height / 2;
+      const reordered = [...subtasks];
+      const [moved]   = reordered.splice(stDragSrcIndex, 1);
+      const insertAt  = reordered.indexOf(subtasks[tgtIndex]);
+      reordered.splice(dropBefore ? insertAt : insertAt + 1, 0, moved);
+
+      try {
+        setSyncStatus('syncing');
+        await tasksCol.doc(taskId).update({ subtasks: reordered });
+        setSyncStatus('');
+        openDetail(taskId);
+      } catch(err) { console.error(err); setSyncStatus('offline'); }
+    });
+  });
+}
+
 function editSubtaskInline(taskId, index, spanEl) {
   const current = spanEl.textContent;
   const input = document.createElement('input');

@@ -770,11 +770,42 @@
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
 
+  /* ── HAMBURGER ── */
+  .hamburger {
+    display: none;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px 4px 4px 0;
+    flex-shrink: 0;
+    flex-direction: column;
+    gap: 5px;
+    align-self: flex-start;
+    margin-top: 6px;
+    margin-right: 0.6rem;
+  }
+  .hamburger span {
+    display: block;
+    width: 22px; height: 2px;
+    background: var(--ink-2);
+    border-radius: 2px;
+  }
+
+  .sidebar-backdrop {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.45);
+    z-index: 199;
+  }
+  .sidebar-backdrop.open { display: block; }
+
   /* ── RESPONSIVE ── */
   @media(max-width: 640px) {
-    .sidebar { position: fixed; left:-240px; top:0; bottom:0; z-index:200; transition: left .2s; }
+    .hamburger { display: flex; }
+    .topbar { display: flex; align-items: flex-start; padding: 1rem 1rem 0; }
+    .topbar-text { flex: 1; min-width: 0; }
+    .sidebar { position: fixed; left:-240px; top:0; bottom:0; z-index:200; transition: left .25s ease; }
     .sidebar.open { left:0; }
-    .topbar { padding: 1rem 1rem 0; }
     .task-scroll { padding: 0.75rem 1rem 2rem; }
     .filter-bar { padding: 0.5rem 1rem; }
     .detail-panel { position: fixed; inset:0; width:100%; transform:translateX(100%); z-index:300; }
@@ -784,6 +815,9 @@
 <body>
 
 <div class="shell">
+
+  <!-- Mobile backdrop -->
+  <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="closeSidebar()"></div>
 
   <!-- ── SIDEBAR ── -->
   <aside class="sidebar" id="sidebar">
@@ -828,8 +862,13 @@
   <!-- ── MAIN ── -->
   <main class="main">
     <div class="topbar">
-      <div class="view-title" id="viewTitle">Today</div>
-      <div class="view-subtitle" id="viewSubtitle"></div>
+      <button class="hamburger" onclick="toggleSidebar()" aria-label="Menu">
+        <span></span><span></span><span></span>
+      </button>
+      <div class="topbar-text">
+        <div class="view-title" id="viewTitle">Today</div>
+        <div class="view-subtitle" id="viewSubtitle"></div>
+      </div>
     </div>
 
     <div class="filter-bar">
@@ -1849,8 +1888,16 @@ document.querySelectorAll('.modal-overlay').forEach(o => {
 });
 
 // ─── Mobile sidebar ───────────────────────────────────────────────────────────
+function toggleSidebar() {
+  const open = document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('sidebarBackdrop').classList.toggle('open', open);
+}
+
 function closeSidebar() {
-  if (window.innerWidth <= 640) document.getElementById('sidebar').classList.remove('open');
+  if (window.innerWidth <= 640) {
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('sidebarBackdrop').classList.remove('open');
+  }
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────

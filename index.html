@@ -800,7 +800,7 @@
   .sidebar-backdrop.open { display: block; }
 
   /* ── RESPONSIVE ── */
-  @media(max-width: 640px) {
+  @media(max-width: 860px) {
     .hamburger { display: flex; }
     .topbar { display: flex; align-items: flex-start; padding: 1rem 1rem 0; }
     .topbar-text { flex: 1; min-width: 0; }
@@ -1894,7 +1894,7 @@ function toggleSidebar() {
 }
 
 function closeSidebar() {
-  if (window.innerWidth <= 640) {
+  if (window.innerWidth <= 860) {
     document.getElementById('sidebar').classList.remove('open');
     document.getElementById('sidebarBackdrop').classList.remove('open');
   }

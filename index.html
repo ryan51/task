@@ -127,6 +127,20 @@
     font-weight: 500;
   }
 
+  .list-edit-btn {
+    background: none; border: none; cursor: pointer;
+    font-size: 0.7rem; padding: 0 2px;
+    opacity: 0; transition: opacity .15s;
+    margin-left: 4px; flex-shrink: 0;
+  }
+  .nav-item:hover .list-edit-btn { opacity: 1; }
+
+  .alert-badge {
+    font-size: 0.65rem;
+    color: #0891b2;
+    display: flex; align-items: center; gap: 2px;
+  }
+
   .list-color-dot {
     width: 8px; height: 8px;
     border-radius: 50%;
@@ -957,6 +971,27 @@
   </div>
 </div>
 
+<!-- ── EDIT LIST MODAL ── -->
+<div class="modal-overlay" id="editListModal">
+  <div class="modal">
+    <h3>Edit List</h3>
+    <input type="hidden" id="editListId" />
+    <div class="modal-field">
+      <label>List name</label>
+      <input id="editListName" onkeydown="if(event.key==='Enter')saveEditList()" />
+    </div>
+    <div class="modal-field">
+      <label>Color</label>
+      <div class="color-swatches" id="editColorSwatches"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-ghost" style="color:#dc2626;border-color:#fecaca;" onclick="deleteList()">Delete List</button>
+      <button class="btn-ghost" onclick="closeModal('editListModal')">Cancel</button>
+      <button class="btn-primary" onclick="saveEditList()">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── EDIT TASK MODAL ── -->
 <div class="modal-overlay" id="editModal">
   <div class="modal">
@@ -1002,6 +1037,11 @@
         <option value="monthly">Monthly</option>
         <option value="yearly">Yearly</option>
       </select>
+    </div>
+    <div class="modal-field">
+      <label>Alert time</label>
+      <input type="time" id="editAlert" />
+      <div style="font-size:.7rem;color:var(--ink-3);margin-top:.25rem;">Fires a notification on the task's due date at this time.</div>
     </div>
     <div class="modal-actions">
       <button class="btn-ghost" onclick="closeModal('editModal')">Cancel</button>
@@ -1296,6 +1336,7 @@ function taskHTML(tk) {
           ${stDone}/${stTotal}
         </span>` : ''}
         ${tk.repeat && tk.repeat !== 'none' ? `<span class="repeat-badge active">🔁 ${REPEAT_LABELS[tk.repeat]}</span>` : ''}
+        ${tk.alertTime ? `<span class="alert-badge">🔔 ${tk.alertTime}</span>` : ''}
       </div>
       ${subtaskListHTML}
     </div>
@@ -1323,6 +1364,7 @@ function renderListNav() {
       <div class="list-color-dot" style="background:${l.color||'#888'}"></div>
       ${escHtml(l.name)}
       <span class="nav-count">${tasks.filter(t=>t.listId===l.id&&!t.done).length}</span>
+      <button class="list-edit-btn" onclick="event.stopPropagation();openEditList('${l.id}')" title="Edit list">✏️</button>
     </div>
   `).join('');
 }
@@ -1350,7 +1392,8 @@ function renderTagNav() {
 }
 
 function populateListSelects() {
-  const opts = `<option value="">No list</option>` + lists.map(l =>
+  const sorted = [...lists].sort((a,b) => a.name.localeCompare(b.name));
+  const opts = `<option value="">No list</option>` + sorted.map(l =>
     `<option value="${l.id}">${escHtml(l.name)}</option>`
   ).join('');
   document.getElementById('newList').innerHTML = opts;
@@ -1515,6 +1558,7 @@ function openEdit(id) {
   document.getElementById('editTagInput').value = '';
   renderTagPills('editTagWrap', editTags, 'removeEditTag');
   document.getElementById('editRepeat').value = tk.repeat || 'none';
+  document.getElementById('editAlert').value  = tk.alertTime || '';
 
   selectedEditPrio = String(tk.priority||4);
   document.querySelectorAll('#editPrioPicker .prio-btn').forEach(b => {
@@ -1537,13 +1581,14 @@ async function saveEdit() {
   if (partialTag && !editTags.includes(partialTag)) editTags.push(partialTag);
 
   const data = {
-    title:    document.getElementById('editTitle').value.trim(),
-    notes:    document.getElementById('editNotes').value.trim(),
-    due:      document.getElementById('editDue').value || null,
-    listId:   document.getElementById('editList').value || null,
-    priority: parseInt(selectedEditPrio) || 4,
-    repeat:   document.getElementById('editRepeat').value || 'none',
-    tags:     [...editTags],
+    title:     document.getElementById('editTitle').value.trim(),
+    notes:     document.getElementById('editNotes').value.trim(),
+    due:       document.getElementById('editDue').value || null,
+    listId:    document.getElementById('editList').value || null,
+    priority:  parseInt(selectedEditPrio) || 4,
+    repeat:    document.getElementById('editRepeat').value || 'none',
+    alertTime: document.getElementById('editAlert').value || null,
+    tags:      [...editTags],
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
   };
   if (!data.title) return;
@@ -1602,6 +1647,10 @@ function openDetail(id) {
       <div>
         <div style="font-size:.7rem;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3rem;">Repeat</div>
         <div style="font-size:.875rem;">${tk.repeat && tk.repeat !== 'none' ? `<span class="repeat-badge active">🔁 ${REPEAT_LABELS[tk.repeat]}</span>` : '—'}</div>
+      </div>
+      <div>
+        <div style="font-size:.7rem;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3rem;">Alert</div>
+        <div style="font-size:.875rem;">${tk.alertTime ? `<span class="alert-badge">🔔 ${tk.alertTime}</span>` : '—'}</div>
       </div>
       <div>
         <div style="font-size:.7rem;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3rem;">Priority</div>
@@ -1861,6 +1910,54 @@ function closeDetail() {
 }
 
 // ─── List management ─────────────────────────────────────────────────────────
+let editingListColor = LIST_COLORS[0];
+
+function buildEditColorSwatches() {
+  const el = document.getElementById('editColorSwatches');
+  el.innerHTML = LIST_COLORS.map(c =>
+    `<div class="color-swatch ${c===editingListColor?'selected':''}"
+      style="background:${c}" onclick="pickEditColor(this,'${c}')"></div>`
+  ).join('');
+}
+
+function pickEditColor(el, c) {
+  editingListColor = c;
+  document.querySelectorAll('#editColorSwatches .color-swatch').forEach(s => s.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+function openEditList(id) {
+  const lst = lists.find(l => l.id === id);
+  if (!lst) return;
+  document.getElementById('editListId').value   = id;
+  document.getElementById('editListName').value = lst.name;
+  editingListColor = lst.color || LIST_COLORS[0];
+  buildEditColorSwatches();
+  openModal('editListModal');
+  setTimeout(() => document.getElementById('editListName').focus(), 100);
+}
+
+async function saveEditList() {
+  const id   = document.getElementById('editListId').value;
+  const name = document.getElementById('editListName').value.trim();
+  if (!name) return;
+  try {
+    await listsCol.doc(id).update({ name, color: editingListColor });
+    closeModal('editListModal');
+  } catch(e) { console.error(e); }
+}
+
+async function deleteList() {
+  const id = document.getElementById('editListId').value;
+  const lst = lists.find(l => l.id === id);
+  if (!confirm(`Delete list "${lst?.name}"? Tasks in this list won't be deleted.`)) return;
+  try {
+    await listsCol.doc(id).delete();
+    closeModal('editListModal');
+    if (currentView === id) setView('all');
+  } catch(e) { console.error(e); }
+}
+
 function openAddList() {
   selectedListColor = LIST_COLORS[0];
   buildColorSwatches();
@@ -1877,6 +1974,45 @@ async function saveList() {
     closeModal('listModal');
   } catch(e) { console.error(e); }
 }
+
+// ─── Notifications / Alerts ───────────────────────────────────────────────────
+let notifPermission = 'default';
+let firedAlerts = new Set(); // track which task IDs already fired today
+
+async function requestNotifPermission() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'granted') {
+    notifPermission = 'granted'; return;
+  }
+  if (Notification.permission !== 'denied') {
+    const result = await Notification.requestPermission();
+    notifPermission = result;
+  }
+}
+
+function checkAlerts() {
+  if (notifPermission !== 'granted') return;
+  const now   = new Date();
+  const t     = today();
+  const hhmm  = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+
+  tasks.forEach(tk => {
+    if (tk.done || !tk.alertTime || !tk.due) return;
+    if (tk.due > t) return; // only alert on/after due date
+    const fireKey = `${tk.id}-${t}`;
+    if (firedAlerts.has(fireKey)) return;
+    if (tk.alertTime === hhmm) {
+      firedAlerts.add(fireKey);
+      const lst = listFor(tk.listId);
+      new Notification(`📋 ${tk.title}`, {
+        body: lst ? `List: ${lst.name}` : 'Task due',
+        icon: 'app-icon-tasks-192.png',
+        tag:  fireKey
+      });
+    }
+  });
+}
+
 
 // ─── Modal helpers ────────────────────────────────────────────────────────────
 function openModal(id) {
@@ -1909,6 +2045,11 @@ document.addEventListener('DOMContentLoaded', () => {
   buildColorSwatches();
   loadAll();
   setView('today');
+
+  // Request notification permission for alerts
+  requestNotifPermission();
+  // Check alerts every minute
+  setInterval(checkAlerts, 60000);
 
   // Keyboard shortcut: 'n' to add task
   document.addEventListener('keydown', e => {

@@ -528,6 +528,8 @@
   }
   .icon-btn:hover { background: var(--bg); color: var(--ink); }
   .icon-btn.del:hover { background: #fee2e2; color: var(--p1); }
+  .icon-btn.today-active { background: rgba(251,191,36,.15); }
+  .icon-btn.today-active:hover { background: rgba(251,191,36,.3); }
 
   /* ── SUBTASKS ── */
   .subtask-progress {
@@ -850,6 +852,10 @@
         <span class="nav-icon">☀️</span> Today
         <span class="nav-count" id="cnt-today">0</span>
       </div>
+      <div class="nav-item" onclick="setView('overdue')" data-view="overdue">
+        <span class="nav-icon">🔥</span> Overdue
+        <span class="nav-count" id="cnt-overdue" style="background:rgba(220,38,38,.3);color:#fca5a5;">0</span>
+      </div>
       <div class="nav-item" onclick="setView('upcoming')" data-view="upcoming">
         <span class="nav-icon">📅</span> Upcoming
         <span class="nav-count" id="cnt-upcoming">0</span>
@@ -1171,8 +1177,9 @@ async function loadAll() {
 function updateCounts() {
   const t = today();
   const open = tasks.filter(tk => !tk.done);
-  document.getElementById('cnt-all').textContent     = open.length;
-  document.getElementById('cnt-today').textContent   = open.filter(tk => !tk.due || tk.due <= t).length;
+  document.getElementById('cnt-all').textContent      = open.length;
+  document.getElementById('cnt-today').textContent    = open.filter(tk => tk.inToday).length;
+  document.getElementById('cnt-overdue').textContent  = open.filter(tk => tk.due && tk.due < t).length;
   document.getElementById('cnt-upcoming').textContent = open.filter(tk => tk.due && tk.due > t).length;
 }
 
@@ -1198,15 +1205,16 @@ function setView(v) {
   });
   document.querySelectorAll('.nav-tag-item').forEach(el => el.classList.remove('active'));
 
-  const titles = {today:'Today', upcoming:'Upcoming', all:'All Tasks', done:'Completed'};
+  const titles = {today:'Today', overdue:'Overdue', upcoming:'Upcoming', all:'All Tasks', done:'Completed'};
   document.getElementById('viewTitle').textContent = titles[v] || (listFor(v)?.name || v);
 
   const t = today();
   const subs = {
-    today: new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}),
+    today:    'Your focus list for today',
+    overdue:  'Tasks past their due date',
     upcoming: 'Tasks with future due dates',
-    all: 'Every open task',
-    done: 'Completed tasks'
+    all:      'Every open task',
+    done:     'Completed tasks'
   };
   document.getElementById('viewSubtitle').textContent = subs[v] || '';
 
@@ -1228,7 +1236,9 @@ function renderTasks() {
 
   // View filter
   if (currentView === 'today') {
-    filtered = filtered.filter(tk => !tk.done && (!tk.due || tk.due <= t));
+    filtered = filtered.filter(tk => !tk.done && tk.inToday);
+  } else if (currentView === 'overdue') {
+    filtered = filtered.filter(tk => !tk.done && tk.due && tk.due < t);
   } else if (currentView === 'upcoming') {
     filtered = filtered.filter(tk => !tk.done && tk.due && tk.due > t);
   } else if (currentView === 'all') {
@@ -1275,12 +1285,13 @@ function renderTasks() {
   const container = document.getElementById('taskList');
 
   if (filtered.length === 0) {
-    const icons = {today:'☀️',upcoming:'📅',all:'🎉',done:'✅'};
+    const icons = {today:'☀️', overdue:'🔥', upcoming:'📅', all:'🎉', done:'✅'};
     const msgs  = {
-      today:'Nothing due today — great work!',
+      today:   'Nothing due today — great work!',
+      overdue: 'Nothing overdue — you\'re on top of it! 🙌',
       upcoming:'No upcoming tasks.',
-      all:'No open tasks. Add one above.',
-      done:'Nothing completed yet.'
+      all:     'No open tasks. Add one above.',
+      done:    'Nothing completed yet.'
     };
     container.innerHTML = `<div class="empty-state">
       <div class="big-icon">${icons[currentView]||'📋'}</div>
@@ -1341,6 +1352,7 @@ function taskHTML(tk) {
       ${subtaskListHTML}
     </div>
     <div class="task-actions" onclick="event.stopPropagation()">
+      <button class="icon-btn ${tk.inToday?'today-active':''}" onclick="toggleToday('${tk.id}',${!tk.inToday})" title="${tk.inToday?'Remove from Today':'Add to Today'}">☀️</button>
       <button class="icon-btn" onclick="openEdit('${tk.id}')" title="Edit">✏️</button>
       <button class="icon-btn del" onclick="deleteTask('${tk.id}')" title="Delete">🗑</button>
     </div>
@@ -1487,6 +1499,7 @@ async function addTask() {
   const entry = {
     title,
     done: false,
+    inToday: currentView === 'today',
     priority: parseInt(selectedPrio) || 4,
     due: document.getElementById('newDue').value || null,
     listId: document.getElementById('newList').value || null,
@@ -1531,6 +1544,15 @@ async function toggleDone(id, done) {
         });
       }
     }
+    setSyncStatus('');
+  } catch(e) { console.error(e); setSyncStatus('offline'); }
+}
+
+// ─── Toggle Today ─────────────────────────────────────────────────────────────
+async function toggleToday(id, inToday) {
+  try {
+    setSyncStatus('syncing');
+    await tasksCol.doc(id).update({ inToday });
     setSyncStatus('');
   } catch(e) { console.error(e); setSyncStatus('offline'); }
 }
